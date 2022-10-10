@@ -65,7 +65,7 @@ class MultitaskModel(transformers.PreTrainedModel):
         TODO: parallelize: 1 gpu per model?
         """
         if (labels is not None):
-            encoder_outputs = self.encoder(input_ids, attention_mask)
+            encoder_outputs = self.shared_encoder(input_ids, attention_mask)
             sum_outputs = self.sum_model(input_ids=input_ids, 
                                          attention_mask=attention_mask, 
                                          labels=labels, 
