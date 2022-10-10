@@ -1,0 +1,30 @@
+python /hits/basement/nlp/kolbertm/code/mtl_sum/run_summarization.py \
+    --model_name_or_path {insert_path_to_model} \
+    --src_lang en_XX \
+    --tgt_lang de_DE \
+    --do_eval \
+    --do_predict \
+    --max_source_length 512 \
+    --val_max_target_length 200 \
+    --max_target_length 512 \
+    --pad_to_max_length True \
+    --ignore_pad_token_for_loss True \
+    --validation_file /hits/basement/nlp/fatimamh/wcs_hf/sim_sum/val.csv \
+    --test_file /hits/basement/nlp/fatimamh/wcs_hf/sim_sum/test.csv \
+    --output_dir /hits/basement/nlp/kolbertm/outputs/mtl_sum/ \
+    --test_output_path /hits/basement/nlp/kolbertm/outputs/mtl_sum/predictions.csv \
+    --greater_is_better True \
+    --metric_for_best_model "eval_rouge1" \
+    --sortish_sampler True \
+    --group_by_length True \
+    --per_device_eval_batch_size 2 \
+    --predict_with_generate \
+    --logging_dir /hits/basement/nlp/kolbertm/outputs/mtl_sum/logging/ \
+    --logging_strategy steps \
+    --logging_steps 1 \
+    --logging_first_step True
+    --optim "adamw_torch" \
+    --fp16 \
+    --fp16_full_eval \
+    --report_to "wandb" \
+    --deepspeed zero2_config_accelerate.json 
