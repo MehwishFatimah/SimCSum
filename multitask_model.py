@@ -1,102 +1,190 @@
+import logging
+from typing import Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 import transformers
+from transformers import AutoModelForSeq2SeqLM
+from transformers.modeling_outputs import Seq2SeqLMOutput
+
+logging.basicConfig(level=logging.INFO)
 
 
 class MultitaskModel(transformers.PreTrainedModel):
-    def __init__(self, encoder, model_1, model_2, alpha, beta):
-        """
-        Setting MultitaskModel up as a PretrainedModel allows us
-        to take better advantage of Trainer features
+    def __init__(self, encoder, model_1, model_2, alpha=0.7):
+        """Inheriting from PreTrainedModel because then we can benefit from the 
+        Huggingface Trainer implementation
+
+        Args:
+            encoder (Encoder): the shared encoder for our model
+            model_1 (Model): The decoder + LM head for the summarization part of our model
+            model_2 (Model): The decoder + LM head for the simplification part of our model
+            alpha (int): value to weigh the main task loss
         """
         super().__init__(transformers.PretrainedConfig())
 
-        self.shared_encoder = encoder
+        self.encoder = encoder
         self.sum_model = model_1
         self.sim_model = model_2
         self.model_list = [self.sum_model, self.sim_model]
         self.alpha = alpha
-        self.beta = beta
-        
-        self.config.max_length = 200
-        self.sum_model.config.max_length = 200
-        self.sum_model.config.max_length = 512
-        # self.config.bad_words_ids = self.sum_model.config.bad_words_ids
-        # self.config.bos_token_id = self.sum_model.config.bos_token_id
-        # self.config.pad_token_id = self.sum_model.config.pad_token_id
-        # self.config.eos_token_id = self.sum_model.config.eos_token_id
-        # self.config.sep_token_id = self.sum_model.config.sep_token_id
-        # self.config.vocab_size = self.sum_model.config.vocab_size
-        self.config.hidden_size = self.sum_model.config.hidden_size
-        # self.config.num_attention_heads = self.sum_model.config.num_attention_heads
-        # self.config.num_hidden_layers = self.sum_model.config.num_hidden_layers
-        # self.config.length_penalty = self.sum_model.config.length_penalty
-        # self.config.no_repeat_ngram_size = self.sum_model.config.no_repeat_ngram_size
-        # self.config.repetition_penalty = self.sum_model.config.repetition_penalty
-        # self.config.num_return_sequences = self.sum_model.config.num_return_sequences
-        # self.config.num_beams = self.sum_model.config.num_beams
+        self.beta = 1 - self.alpha
+
+        self.config = self.sum_model.config
+
     @classmethod
-    def create(cls, model_name, model_type, alpha=0.7, beta=0.3):
-        """
-        This creates a MultitaskModel using the model class and config objects
+    def create(cls, model_name, target_lang_id, source_lang_id, alpha=0.7):
+        """        This creates a MultitaskModel using the model class and model name
         from single-task models.
 
         We do this by creating each single-task model, and having them share
-        the same encoder transformer.
-        """
-        model_1 = model_type.from_pretrained(model_name)
-        model_2 = model_type.from_pretrained(model_name)
-        shared_encoder = model_1.model.encoder
-        model_2.model.encoder = shared_encoder
-        return cls(shared_encoder, model_1, model_2, alpha, beta)
-
-
-    def forward(self, input_ids, attention_mask=None, labels=None, sim_labels=None, **kwargs):
-        """Generate the output for both summarization and simplification tasks.
+        the same encoder.
 
         Args:
-            sum_batch (dict): encoded batch from summarization task
-            sim_batch (dict): encoded batch from simplification task
-            task_name (Str):  if you want to do a forward pass on a specific task, provide a task name
+            model_name (str): The pretrained model name or checkpoint you want train further on
+            target_lang_id (int): The language id for the summarization decoder
+            source_lang_id (int): The language id for the simplification decoer.
+            alpha (float, optional): The value with which we weigh how much the main task loss influences the total loss. Defaults to 0.7.
 
         Returns:
-            outputs (Seq2SeqLMOutput): outputs for summarization task or simplification task, or both
-            
-        TODO: parallelize: 1 gpu per model?
+            MultitaskModel: Multitask model with two submodels who share an encoder.
         """
-        if (labels is not None):
-            encoder_outputs = self.shared_encoder(input_ids, attention_mask)
-            sum_outputs = self.sum_model(input_ids=input_ids, 
-                                         attention_mask=attention_mask, 
-                                         labels=labels, 
-                                         encoder_outputs=encoder_outputs,
-                                         **kwargs)
-            sim_outputs = self.sim_model(input_ids=input_ids, 
-                                         attention_mask=attention_mask, 
-                                         labels=sim_labels, 
-                                         encoder_outputs=encoder_outputs,
-                                         **kwargs)
+        logging.info(
+            f"Loading {model_name} for summarization from pretrained...")
+        model_1 = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        logging.info(
+            f"Loading {model_name} for simplification from pretrained...")
+        model_2 = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        model_1.config.decoder_start_token_id = target_lang_id
+        model_2.config.decoder_start_token_id = source_lang_id
+        model_1.config.forced_bos_token_id = target_lang_id
+        model_2.config.forced_bos_token_id = source_lang_id
+        model_2.config.max_length = 512
+        shared_encoder = model_1.get_encoder() # you could change this line to shared_encoder_decoder = model_1.model
+        logging.info(f"Setting shared encoder...{shared_encoder}")
+        model_2.model.encoder = shared_encoder # and this to model_2.model = shared_encoder_decoder
+        # This way not only the encoder would be shared, but the encoder an the decoder.
+        # You would have to think about the way to input both the summarization labels and the simplification labels into the decoder. 
+        # One possibility: By alternating randomly between summarization and simplification labels
+        return cls(shared_encoder, model_1, model_2, alpha)
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_attention_mask: Optional[torch.LongTensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        decoder_head_mask: Optional[torch.Tensor] = None,
+        cross_attn_head_mask: Optional[torch.Tensor] = None,
+        encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        sim_labels=None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Seq2SeqLMOutput, Tuple[torch.FloatTensor]]:
+        """Forward function of our multitask model. Arguments taken from MBartForConditionalGeneration code.
+
+        Args:
+            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`.): 
+                Indices of input sequence tokens in the vocab
+            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, optional): 
+                Mask to avoid performing attention on padding token indices. Defaults to None.
+            labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, optional): 
+                Summarization labels. The labels are used for computing the masked language modeling loss. Defaults to None.
+            sim_labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, optional): 
+                Simplification labels. The labels are used for computing the masked language modeling loss. Defaults to None.
+            decoder_input_ids (`torch.LongTensor` of shape `(batch_size, target_sequence_length)`, optional):  
+                Indices of decoder input sequence tokens in the vocabulary.. Defaults to None.
+
+        Returns:
+            Seq2SeqModelOutput: The output of our forward function, more information here:
+            https://huggingface.co/docs/transformers/main_classes/output#transformers.modeling_outputs.Seq2SeqModelOutput
+        """
+        if (sim_labels is not None):
+            if encoder_outputs is None:
+                encoder_outputs = self.encoder(input_ids, attention_mask)
+            sum_outputs = self.sum_model(
+                input_ids,
+                attention_mask,
+                decoder_input_ids,
+                decoder_attention_mask,
+                head_mask,
+                decoder_head_mask,
+                cross_attn_head_mask,
+                encoder_outputs,
+                past_key_values,
+                inputs_embeds,
+                decoder_inputs_embeds,
+                labels,
+                use_cache,
+                output_attentions,
+                output_hidden_states,
+                return_dict
+            )
+            sim_outputs = self.sim_model(
+                input_ids,
+                attention_mask,
+                decoder_input_ids,
+                decoder_attention_mask,
+                head_mask,
+                decoder_head_mask,
+                cross_attn_head_mask,
+                encoder_outputs,
+                past_key_values,
+                inputs_embeds,
+                decoder_inputs_embeds,
+                sim_labels,
+                use_cache,
+                output_attentions,
+                output_hidden_states,
+                return_dict
+            )
             sum_outputs.loss = self.alpha * sum_outputs.loss + self.beta * sim_outputs.loss
             return sum_outputs
         else:
-            return self.sum_model(input_ids=input_ids, **kwargs)
+            return self.sum_model(
+                input_ids,
+                attention_mask,
+                decoder_input_ids,
+                decoder_attention_mask,
+                head_mask,
+                decoder_head_mask,
+                cross_attn_head_mask,
+                encoder_outputs,
+                past_key_values,
+                inputs_embeds,
+                decoder_inputs_embeds,
+                labels,
+                use_cache,
+                output_attentions,
+                output_hidden_states,
+                return_dict
+            )
 
-    
     def resize_token_embeddings(self, new_num_tokens):
         for model in self.model_list:
             embeddings = model.resize_token_embeddings(new_num_tokens)
         return embeddings
-    
+
     def _apply(self, fn):
+        """
+        Not sure if this function is needed, but included it to make sure that multitask_model.to(device) is applied to
+        the summarization and simplification models as well.
+        """
         super()._apply(fn)
         for model in self.model_list:
             model._apply(fn)
         return self
-    
 
     def prepare_inputs_for_generation(
         self,
-        input_ids,
+        decoder_input_ids,
         past=None,
         attention_mask=None,
         head_mask=None,
@@ -104,24 +192,45 @@ class MultitaskModel(transformers.PreTrainedModel):
         cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
-        decoder_input_ids=None,
         **kwargs
     ):
-        # cut decoder_input_ids if past is used
-        if past is not None:
-            input_ids = input_ids[:, -1:]
+        """
+        Prepares decoder input ids for generation. Used for generation by Seq2SeqTrainer if predict_with_generate is True. We just return 
+        the MBartForConditionalGeneration method for this.
+        """
 
-        return {
-            "input_ids": input_ids,  # encoder_outputs is defined. input_ids not needed
-            "encoder_outputs": encoder_outputs,
-            "past_key_values": past,
-            "decoder_input_ids": decoder_input_ids,
-            "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
-            "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
-        }
-    
+        return self.sum_model.prepare_inputs_for_generation(
+            decoder_input_ids,
+            past,
+            attention_mask,
+            head_mask,
+            decoder_head_mask,
+            cross_attn_head_mask,
+            use_cache,
+            encoder_outputs,
+            **kwargs
+        )
+
     def _reorder_cache(self, past, beam_idx):
+        """
+        Also used during evaluation. Return the the MBartForConditionalGeneration method for this. 
+        """
         return self.sum_model._reorder_cache(past, beam_idx)
+
+    def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor):
+        """
+        Also used during evaluation. Return the the MBartForConditionalGeneration method for this. 
+        """
+        return self.sum_model.prepare_decoder_input_ids_from_labels(labels)
+
+    def get_encoder(self):
+        """
+        Returns the shared encoder. Used for evaluation by Seq2SeqTrainer.
+        """
+        return self.encoder
+
+    def get_decoder(self):
+        """
+        Returns the decoder of our summarization model. Used for evaluation by Seq2SeqTrainer.
+        """
+        return self.sum_model.get_decoder()

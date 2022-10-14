@@ -22,40 +22,29 @@ import logging
 import os
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
-import wandb
 
-import pandas as pd
 import datasets
+import evaluate
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
-from datasets import load_dataset
-from pathlib import Path
-from model_util import save_model
-
-import evaluate
+import pandas as pd
 import transformers
+from datasets import load_dataset
 from filelock import FileLock
-from transformers import (
-    MBartConfig,
-    AutoConfig,
-    AutoModelForSeq2SeqLM,
-    AutoTokenizer,
-    DataCollatorForSeq2Seq,
-    HfArgumentParser,
-    MBart50Tokenizer,
-    MBart50TokenizerFast,
-    MBartTokenizer,
-    MBartTokenizerFast,
-    Seq2SeqTrainer,
-    Seq2SeqTrainingArguments,
-    set_seed,
-    MBartForConditionalGeneration,
-)
+from transformers import (AutoModelForSeq2SeqLM, AutoTokenizer,
+                          DataCollatorForSeq2Seq, HfArgumentParser,
+                          MBart50Tokenizer, MBart50TokenizerFast,
+                          MBartTokenizer, MBartTokenizerFast, Seq2SeqTrainer,
+                          Seq2SeqTrainingArguments, set_seed, EarlyStoppingCallback)
 from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import check_min_version, is_offline_mode, send_example_telemetry
+from transformers.utils import (check_min_version, is_offline_mode,
+                                send_example_telemetry)
 from transformers.utils.versions import require_version
 
+import wandb
+from model_util import save_model
 from multitask_model import MultitaskModel
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -276,22 +265,6 @@ class DataTrainingArguments:
             raise ValueError("Need a path for the output file for the predictions.")
 
 
-summarization_name_mapping = {
-    "amazon_reviews_multi": ("review_body", "review_title"),
-    "big_patent": ("description", "abstract"),
-    "cnn_dailymail": ("article", "highlights"),
-    "orange_sum": ("text", "summary"),
-    "pn_summary": ("article", "summary"),
-    "psc": ("extract_text", "summary_text"),
-    "samsum": ("dialogue", "summary"),
-    "thaisum": ("body", "summary"),
-    "xglue": ("news_body", "news_title"),
-    "xsum": ("document", "summary"),
-    "wiki_summary": ("article", "highlights"),
-    "multi_news": ("document", "summary"),
-}
-
-
 def main():
     
     wandb.init(mode="disabled")
@@ -384,19 +357,15 @@ def main():
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
-    # Load pretrained model and tokenizer
-    #
-    # Distributed training:
-    # The .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
+    # Load pretrained model tokenizer and create multitask model from pretrained model
 
-    sum_tokenizer = MBartTokenizer.from_pretrained(
+    sum_tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         use_fast=model_args.use_fast_tokenizer,
         revision=model_args.model_revision,
     )
-    sim_tokenizer = MBartTokenizer.from_pretrained(
+    sim_tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         use_fast=model_args.use_fast_tokenizer,
@@ -404,13 +373,17 @@ def main():
     )
     multitask_model = MultitaskModel.create(
         model_name=model_args.model_name_or_path,
-        model_type=MBartForConditionalGeneration
+        target_lang_id=sum_tokenizer.lang_code_to_id[data_args.tgt_lang], 
+        source_lang_id=sim_tokenizer.lang_code_to_id[data_args.src_lang]
     )
     
+    # Resizes input token embeddings matrix of the model if new_num_tokens != config.vocab_size
     multitask_model.resize_token_embeddings(len(sum_tokenizer))
 
     for model in multitask_model.model_list:
         if model.config.decoder_start_token_id is None and isinstance(sum_tokenizer, (MBartTokenizer, MBartTokenizerFast)):
+            # set decoder_start_token_id to generate the correct language during inference 
+            # only for the summarization model because the simplification model is not used during inference at this moment
             if isinstance(sum_tokenizer, MBartTokenizer):
                 model.config.decoder_start_token_id = sum_tokenizer.lang_code_to_id[data_args.tgt_lang]
             else:
@@ -456,17 +429,15 @@ def main():
         ), f"{sum_tokenizer.__class__.__name__} is a multilingual tokenizer which requires --lang argument"
 
         sum_tokenizer.src_lang = data_args.src_lang
-        sum_tokenizer.tgt_lang = data_args.tgt_lang
+        sum_tokenizer.tgt_lang = data_args.tgt_lang # for summarization the target language should different from the input language
         
         sim_tokenizer.src_lang = data_args.src_lang
-        sim_tokenizer.tgt_lang = data_args.src_lang
+        sim_tokenizer.tgt_lang = data_args.src_lang # for simplificatin the target language should be same as input language
 
         # For multilingual translation models like mBART-50 and M2M100 we need to force the target language token
         # as the first generated token. We ask the user to explicitly provide this as --forced_bos_token argument.
         german_forced_bos_token_id = sum_tokenizer.lang_code_to_id["de_DE"]
-        english_forced_bos_token_id = sim_tokenizer.lang_code_to_id["en_XX"]
         multitask_model.sum_model.config.forced_bos_token_id = german_forced_bos_token_id
-        multitask_model.sim_model.config.forced_bos_token_id = english_forced_bos_token_id
         multitask_model.config.forced_bos_token_id = german_forced_bos_token_id
     # Get the column names for input/target.
     if data_args.text_column is None:
@@ -506,6 +477,21 @@ def main():
             )
 
     def preprocess_function_train(examples):
+        """The preprocess function for the train dataset, where simplification targets are included.    
+
+        Args:
+            examples (Dataset): a batch of examples containing the data
+
+        Returns:
+            model_inputs (Dict): a dict containing the input for the models forward function, containing:
+            {
+                "input_ids": ...,
+                "attention_mask": ...,
+                "labels": ...,
+                "sim_labels: ...
+                
+            }
+        """
         # remove pairs where at least one record is None
         inputs, sum_targets, sim_targets = [], [], []
         for i in range(len(examples[text_column])):
@@ -521,10 +507,10 @@ def main():
 
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
-        for labels in [labels, sim_labels]:
+        for lab in [labels, sim_labels]:
             if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-                labels["input_ids"] = [
-                    [(l if l != sum_tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+                lab["input_ids"] = [
+                    [(l if l != sum_tokenizer.pad_token_id else -100) for l in label] for label in lab["input_ids"]
                 ]
 
         model_inputs["labels"] = labels["input_ids"]
@@ -532,6 +518,19 @@ def main():
         return model_inputs
     
     def preprocess_function_eval(examples):
+        """The preprocess function for the test dataset, where only summarization targets are included
+
+        Args:
+            examples (Dataset): a batch of examples containing the data
+
+        Returns:
+            model_inputs (Dict): a dict containing the input for the models forward function, containing:
+            {
+                "input_ids": ...,
+                "attention_mask": ...,
+                "labels": ...,
+            }
+        """
         # remove pairs where at least one record is None
         inputs, sum_targets = [], []
         for i in range(len(examples[text_column])):
@@ -654,6 +653,7 @@ def main():
         tokenizer=sum_tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+        callbacks=[EarlyStoppingCallback(3)]
     )
 
     # Training
@@ -686,7 +686,6 @@ def main():
                 references.append(dataset[summary_column][i])
         return references
     
-    # Evaluation
     results = {}
     max_length = (
         training_args.generation_max_length
@@ -726,6 +725,8 @@ def main():
                     predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
                 )
                 predictions = [pred.strip() for pred in predictions]
+                max_predict_samples = min(len(raw_datasets["test"]), data_args.max_predict_samples)
+                raw_datasets["test"] = raw_datasets["test"].select(range(max_predict_samples))
                 references = get_references(raw_datasets["test"])
                 data = {"system": predictions,
                         "reference": references}
