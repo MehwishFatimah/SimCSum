@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 class MultitaskModel(transformers.PreTrainedModel):
-    def __init__(self, encoder, model_1, model_2, alpha=0.7):
+    def __init__(self, encoder, model_1, model_2, lambda_):
         """Inheriting from PreTrainedModel because then we can benefit from the 
         Huggingface Trainer implementation
 
@@ -27,13 +27,12 @@ class MultitaskModel(transformers.PreTrainedModel):
         self.sum_model = model_1
         self.sim_model = model_2
         self.model_list = [self.sum_model, self.sim_model]
-        self.alpha = alpha
-        self.beta = 1 - self.alpha
-
+        self.lambda_ = lambda_
         self.config = self.sum_model.config
+        self.init_shared_cross_attention()
 
     @classmethod
-    def create(cls, model_name, target_lang_id, source_lang_id, alpha=0.7):
+    def create(cls, model_name, target_lang_id, source_lang_id, lambda_):
         """        This creates a MultitaskModel using the model class and model name
         from single-task models.
 
@@ -66,7 +65,7 @@ class MultitaskModel(transformers.PreTrainedModel):
         # This way not only the encoder would be shared, but the encoder an the decoder.
         # You would have to think about the way to input both the summarization labels and the simplification labels into the decoder. 
         # One possibility: By alternating randomly between summarization and simplification labels
-        return cls(shared_encoder, model_1, model_2, alpha)
+        return cls(shared_encoder, model_1, model_2, lambda_)
 
     def forward(
         self,
@@ -145,9 +144,9 @@ class MultitaskModel(transformers.PreTrainedModel):
                 output_hidden_states,
                 return_dict
             )
-            sum_outputs.loss = self.alpha * sum_outputs.loss + self.beta * sim_outputs.loss
+            sum_outputs.loss = self.lambda_ * sum_outputs.loss + (1 - self.lambda_) * sim_outputs.loss
             return sum_outputs
-        else:
+        else: # when no simplification labels are given, we only use the summarization part of the model.
             return self.sum_model(
                 input_ids,
                 attention_mask,
@@ -234,3 +233,13 @@ class MultitaskModel(transformers.PreTrainedModel):
         Returns the decoder of our summarization model. Used for evaluation by Seq2SeqTrainer.
         """
         return self.sum_model.get_decoder()
+    
+    def init_shared_crossattention(self):
+        """
+        Initialize a shared crossattention between the summarization decoder and the simplification decoder.
+        """
+        sum_decoder = self.sum_model.get_decoder()
+        sim_decoder = self.sim_model.get_decoder()
+        for sum_layer, sim_layer in zip(sum_decoder.layers, sim_decoder.layers):
+            cross_attention_layer = sum_layer.encoder_attn
+            sim_layer.encoder_attn = cross_attention_layer
