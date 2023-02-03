@@ -21,6 +21,7 @@ Fine-tuning the library models for sequence to sequence.
 from training_arguments import ModelArguments, DataTrainingArguments
 from training_util import save_model, setup_logging
 from multitask_model import MultitaskModel
+from data_util import detect_last_checkpoint, load_datasets
 
 import logging
 import os
@@ -33,14 +34,12 @@ import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 import pandas as pd
 import transformers
-from datasets import load_dataset
 from filelock import FileLock
 from transformers import (AutoModelForSeq2SeqLM, AutoTokenizer,
                           DataCollatorForSeq2Seq, HfArgumentParser,
                           MBart50Tokenizer, MBart50TokenizerFast,
                           MBartTokenizer, MBartTokenizerFast, Seq2SeqTrainer,
                           Seq2SeqTrainingArguments, set_seed, EarlyStoppingCallback)
-from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import (check_min_version, is_offline_mode,
                                 send_example_telemetry)
 from transformers.utils.versions import require_version
@@ -71,9 +70,6 @@ MULTILINGUAL_TOKENIZERS = [MBartTokenizer, MBartTokenizerFast, MBart50Tokenizer,
 def main():
     
     wandb.init(mode="disabled")
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
 
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
@@ -90,59 +86,12 @@ def main():
     setup_logging(logger=logger, training_args=training_args)
 
     # Detecting last checkpoint.
-    last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
-        last_checkpoint = get_last_checkpoint(training_args.output_dir)
-        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
-            raise ValueError(
-                f"Output directory ({training_args.output_dir}) already exists and is not empty. "
-                "Use --overwrite_output_dir to overcome."
-            )
-        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
-            logger.info(
-                f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
-                "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
-            )
+    last_checkpoint = detect_last_checkpoint(training_args)
+    
+    raw_datasets = load_datasets(model_args, data_args)
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
-
-    # Get the datasets: you can either provide your own CSV/JSON training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files this script will use the first column for the full texts and the second column for the
-    # summaries (unless you specify column names for this with the `text_column` and `summary_column` arguments).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
-    if data_args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
-        raw_datasets = load_dataset(
-            data_args.dataset_name,
-            data_args.dataset_config_name,
-            cache_dir=model_args.cache_dir,
-        )
-    else:
-        data_files = {}
-        if data_args.train_file is not None:
-            data_files["train"] = data_args.train_file
-            extension = data_args.train_file.split(".")[-1]
-        if data_args.validation_file is not None:
-            data_files["validation"] = data_args.validation_file
-            extension = data_args.validation_file.split(".")[-1]
-        if data_args.test_file is not None:
-            data_files["test"] = data_args.test_file
-            extension = data_args.test_file.split(".")[-1]
-        raw_datasets = load_dataset(
-            extension,
-            data_files=data_files,
-            cache_dir=model_args.cache_dir,
-        )
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
-
-    # Load pretrained model tokenizer and create multitask model from pretrained model
 
     sum_tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -218,7 +167,7 @@ def main():
         sum_tokenizer.tgt_lang = data_args.tgt_lang # for summarization the target language should different from the input language
         
         sim_tokenizer.src_lang = data_args.src_lang
-        sim_tokenizer.tgt_lang = data_args.src_lang # for simplificatin the target language should be same as input language
+        sim_tokenizer.tgt_lang = data_args.src_lang # for simplification the target language should be same as input language
 
         # For multilingual translation models like mBART-50 and M2M100 we need to force the target language token
         # as the first generated token. We ask the user to explicitly provide this as --forced_bos_token argument.
