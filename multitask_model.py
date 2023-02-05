@@ -7,6 +7,7 @@ import transformers
 from transformers import AutoModelForSeq2SeqLM
 from transformers.modeling_outputs import Seq2SeqLMOutput
 
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
@@ -32,7 +33,7 @@ class MultitaskModel(transformers.PreTrainedModel):
         self.init_shared_cross_attention()
 
     @classmethod
-    def create(cls, model_name, target_lang_id, source_lang_id, lambda_):
+    def create(cls, model_name, main_target_lang_id, aux_target_lang_id, max_length, lambda_):
         """        This creates a MultitaskModel using the model class and model name
         from single-task models.
 
@@ -54,11 +55,12 @@ class MultitaskModel(transformers.PreTrainedModel):
         logging.info(
             f"Loading {model_name} for simplification from pretrained...")
         model_2 = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        model_1.config.decoder_start_token_id = target_lang_id
-        model_2.config.decoder_start_token_id = source_lang_id
-        model_1.config.forced_bos_token_id = target_lang_id
-        model_2.config.forced_bos_token_id = source_lang_id
-        model_2.config.max_length = 512
+        model_1.config.decoder_start_token_id = main_target_lang_id
+        model_2.config.decoder_start_token_id = aux_target_lang_id
+        model_1.config.forced_bos_token_id = main_target_lang_id
+        model_2.config.forced_bos_token_id = aux_target_lang_id
+        model_1.config.max_length = max_length
+        model_2.config.max_length = max_length
         shared_encoder = model_1.get_encoder() # you could change this line to shared_encoder_decoder = model_1.model
         logging.info(f"Setting shared encoder...{shared_encoder}")
         model_2.model.encoder = shared_encoder # and this to model_2.model = shared_encoder_decoder

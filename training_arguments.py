@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
+import wandb
 
 @dataclass
 class ModelArguments:
@@ -47,7 +48,9 @@ class DataTrainingArguments:
 
     src_lang: Optional[str] = field(default=None, metadata={"help": "Source Language id for summarization."})
     
-    tgt_lang: Optional[str] = field(default=None, metadata={"help": "Target Language id for summarization."})
+    main_tgt_lang: Optional[str] = field(default=None, metadata={"help": "Target Language id for the main task."})
+    
+    aux_tgt_lang: Optional[str] = field(default=None, metadata={"help": "Target Language id for the auxiliairy task."})
 
     dataset_name: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
@@ -188,6 +191,12 @@ class DataTrainingArguments:
             "help": "Whether to ignore the tokens corresponding to padded labels in the loss computation or not."
         },
     )
+    wandb_enabled: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to enable wandb for training."
+        },
+    )
 
 
     def __post_init__(self):
@@ -204,3 +213,5 @@ class DataTrainingArguments:
             self.val_max_target_length = self.max_target_length
         if self.test_file is not None and self.test_output_path is None:
             raise ValueError("Need a path for the output file for the predictions.")
+        if self.wandb_enabled == False:
+            wandb.init(mode="disabled")
