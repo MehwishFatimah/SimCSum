@@ -11,9 +11,10 @@ This is the code for the paper [Link]
 Tested with Python [version number].
 ## Setting up
 
-git checkout https://github.com/timkolber/mtl_sum.git
-cd mtl_sum
-python run_summarization.py [--training_args] [--data_args]
+git checkout https://github.com/timkolber/mtl_sum.git \\
+cd mtl_sum \\
+python run_summarization.py [--training_args] [--data_args] \\
+
 ## Arguments
 
 - Seq2SeqTrainingArguments
