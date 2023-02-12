@@ -89,8 +89,8 @@ def main():
 
     multitask_model = MultitaskModel.create(
         model_name=model_args.model_name_or_path,
-        target_lang_id=sum_tokenizer.lang_code_to_id[data_args.main_tgt_lang], 
-        source_lang_id=sim_tokenizer.lang_code_to_id[data_args.aux_tgt_lang],
+        main_target_lang_id=sum_tokenizer.lang_code_to_id[data_args.main_tgt_lang], 
+        aux_source_lang_id=sim_tokenizer.lang_code_to_id[data_args.aux_tgt_lang],
         max_length=data_args.max_source_length,
         lambda_=data_args.lambda_
     )

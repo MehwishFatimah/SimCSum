@@ -20,7 +20,7 @@ class MultitaskModel(transformers.PreTrainedModel):
             encoder (Encoder): the shared encoder for our model
             model_1 (Model): The decoder + LM head for the summarization part of our model
             model_2 (Model): The decoder + LM head for the simplification part of our model
-            alpha (int): value to weigh the main task loss
+            lambda_ (int): value to weigh the main task loss
         """
         super().__init__(transformers.PretrainedConfig())
 
@@ -44,7 +44,7 @@ class MultitaskModel(transformers.PreTrainedModel):
             model_name (str): The pretrained model name or checkpoint you want train further on
             target_lang_id (int): The language id for the summarization decoder
             source_lang_id (int): The language id for the simplification decoer.
-            alpha (float, optional): The value with which we weigh how much the main task loss influences the total loss. Defaults to 0.7.
+            lambda_ (float, optional): The value with which we weigh how much the main task loss influences the total loss.
 
         Returns:
             MultitaskModel: Multitask model with two submodels who share an encoder.
@@ -67,6 +67,7 @@ class MultitaskModel(transformers.PreTrainedModel):
         # This way not only the encoder would be shared, but the encoder an the decoder.
         # You would have to think about the way to input both the summarization labels and the simplification labels into the decoder. 
         # One possibility: By alternating randomly between summarization and simplification labels
+        logging.info("Finished initizializing multitask model.")
         return cls(shared_encoder, model_1, model_2, lambda_)
 
     def forward(
@@ -242,6 +243,8 @@ class MultitaskModel(transformers.PreTrainedModel):
         """
         sum_decoder = self.sum_model.get_decoder()
         sim_decoder = self.sim_model.get_decoder()
+        logging.info("Setting shared cross attention layer for every decoder layer...")
         for sum_layer, sim_layer in zip(sum_decoder.layers, sim_decoder.layers):
-            cross_attention_layer = sum_layer.encoder_attn
-            sim_layer.encoder_attn = cross_attention_layer
+            shared_cross_attention_layer = sum_layer.encoder_attn
+            sim_layer.encoder_attn = shared_cross_attention_layer
+        logging.info(f"Done! Last shared cross attention layer: {shared_cross_attention_layer}")

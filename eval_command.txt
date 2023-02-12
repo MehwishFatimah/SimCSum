@@ -1,7 +1,8 @@
 python /hits/basement/nlp/kolbertm/code/mtl_sum/run_summarization.py \
     --model_name_or_path {insert_path_to_model} \
     --src_lang en_XX \
-    --tgt_lang de_DE \
+    --main_tgt_lang de_DE \
+    --aux_tgt_lang en_XX \
     --do_eval \
     --do_predict \
     --max_source_length 512 \

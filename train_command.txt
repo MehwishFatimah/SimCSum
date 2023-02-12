@@ -1,13 +1,14 @@
 sb deepspeed --num_gpus=4 /hits/basement/nlp/kolbertm/code/mtl_sum/run_summarization.py \
     --model_name_or_path facebook/mbart-large-cc25 \
     --src_lang en_XX \
-    --tgt_lang de_DE \
+    --main_tgt_lang de_DE \
+    --aux_tgt_lang en_XX \
     --do_train \
     --do_eval \
     --do_predict \
     --max_eval_samples 50 \
     --max_source_length 512 \
-    --val_max_target_length 512 \
+    --val_max_target_length 250 \
     --max_target_length 512 \
     --pad_to_max_length True \
     --ignore_pad_token_for_loss True \
@@ -37,5 +38,5 @@ sb deepspeed --num_gpus=4 /hits/basement/nlp/kolbertm/code/mtl_sum/run_summariza
     --optim "adamw_torch" \
     --fp16 \
     --fp16_full_eval \
-    --report_to "wandb" \
+    --lambda_ 0.7 \
     --deepspeed /hits/basement/nlp/kolbertm/code/mtl_sum/zero3_offload_config_accelerate.json 
