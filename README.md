@@ -21,10 +21,10 @@ python run_summarization.py [--[ModelArguments](#ModelArguments)] [--[DataTraini
 - [ModelArguments](#ModelArguments)
 - [DataTrainingArguments](#DataTrainingArguments)
 
-ModelArguments and DataTrainingArguments are defined in training_arguments.py
+The classes ModelArguments and DataTrainingArguments are defined in training_arguments.py
 
 ### ModelArguments
-- model_name_or_path: Path to pretrained model or model identifier from huggingface.co/models
+- model_name_or_path: Path to pretrained model or model identifier from [Huggingface](huggingface.co/models)
 - config_name: Pretrained config name or path if not the same as model_name
 - tokenizer_name: Pretrained tokenizer name or path if not the same as model_name
 - cache_dir: Where to store the pretrained models downloaded from huggingface.co
