@@ -17,9 +17,9 @@ python run_summarization.py [--[ModelArguments](#ModelArguments)] [--[DataTraini
 
 ## Arguments
 
-- Seq2SeqTrainingArguments
-- ModelArguments
-- DataTrainingArguments
+- [Seq2SeqTrainingArguments](https://huggingface.co/docs/transformers/main/main_classes/trainer#transformers.Seq2SeqTrainingArguments)
+- [ModelArguments](#ModelArguments)
+- [DataTrainingArguments](#DataTrainingArguments)
 
 ModelArguments and DataTrainingArguments are defined in training_arguments.py
 
