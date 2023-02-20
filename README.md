@@ -13,7 +13,7 @@ Tested with Python [version number].
 
 git checkout https://github.com/timkolber/mtl_sum.git \
 cd mtl_sum \
-python run_summarization.py [--[ModelArguments](###ModelArguments)] [--[DataTrainingArguments](###DataTrainingArguments)]
+python run_summarization.py [--[ModelArguments](#ModelArguments)] [--[DataTrainingArguments](#DataTrainingArguments)]
 
 ## Arguments
 
