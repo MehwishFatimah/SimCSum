@@ -24,7 +24,7 @@ python run_summarization.py [--[ModelArguments](#ModelArguments)] [--[DataTraini
 The classes ModelArguments and DataTrainingArguments are defined in training_arguments.py
 
 ### ModelArguments
-- `model_name_or_path`: Path to pretrained model or model identifier from [Huggingface](huggingface.co/models)
+- `model_name_or_path`: Path to pretrained model or model identifier from [Huggingface](huggingface.co/models) to be used as the submodels for each task. Currently only MBart is supported.
 - `config_name`: Pretrained config name or path if not the same as model_name
 - `tokenizer_name`: Pretrained tokenizer name or path if not the same as model_name
 - `cache_dir`: Where to store the pretrained models downloaded from huggingface.co
