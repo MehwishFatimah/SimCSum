@@ -8,7 +8,7 @@ sb deepspeed --num_gpus=4 /hits/basement/nlp/kolbertm/code/mtl_sum/run_summariza
     --do_predict \
     --max_eval_samples 50 \
     --max_source_length 512 \
-    --val_max_target_length 200 \
+    --val_max_target_length 250 \
     --max_target_length 512 \
     --pad_to_max_length True \
     --ignore_pad_token_for_loss True \
