@@ -20,8 +20,9 @@ Fine-tuning the library models for sequence to sequence.
 
 from training_arguments import ModelArguments, DataTrainingArguments
 import training_util
+from training_util import init_tokenizers
 from multitask_model import MultitaskModel
-from data_util import detect_last_checkpoint, init_tokenizers, postprocess_text, DataPreprocessing
+from data_util import detect_last_checkpoint, postprocess_text, DataPreprocessing
 
 import logging
 import os
@@ -90,7 +91,7 @@ def main():
     multitask_model = MultitaskModel.create(
         model_name=model_args.model_name_or_path,
         main_target_lang_id=sum_tokenizer.lang_code_to_id[data_args.main_tgt_lang], 
-        aux_source_lang_id=sim_tokenizer.lang_code_to_id[data_args.aux_tgt_lang],
+        aux_target_lang_id=sim_tokenizer.lang_code_to_id[data_args.aux_tgt_lang],
         max_length=data_args.max_source_length,
         lambda_=data_args.lambda_
     )

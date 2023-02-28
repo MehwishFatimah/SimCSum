@@ -37,10 +37,11 @@ class DataPreprocessing():
         self.model_args = model_args
         self.data_args = data_args
         self.training_args = training_args
-        self.raw_datasets = load_dataset(model_args, data_args)
+        self.raw_datasets = self.load_datasets()
         self.max_target_length = data_args.max_target_length
         self.padding = "max_length" if data_args.pad_to_max_length else False
         self.column_names = self.find_column_names()
+        self.init_data_columns()
         
     def load_datasets(self):
         # Get the datasets: you can either provide your own CSV/JSON training and evaluation files (see below)
@@ -83,7 +84,7 @@ class DataPreprocessing():
             text_column = "text"
         else:
             text_column = self.data_args.text_column
-            if text_column not in self.column_names:
+            if text_column not in self.find_column_names():
                 raise ValueError(
                     f"--text_column' value '{self.data_args.text_column}' needs to be one of: {', '.join(self.column_names)}"
                 )
@@ -91,7 +92,7 @@ class DataPreprocessing():
             summary_column = "summary"
         else:
             summary_column = self.data_args.summary_column
-            if summary_column not in self.column_names:
+            if summary_column not in self.find_column_names():
                 raise ValueError(
                     f"--summary_column' value '{self.data_args.summary_column}' needs to be one of: {', '.join(self.column_names)}"
                 )
@@ -99,7 +100,7 @@ class DataPreprocessing():
             simple_column = "simple"
         else:
             simple_column = self.data_args.simple_column
-            if simple_column not in self.column_names:
+            if simple_column not in self.find_column_names():
                 raise ValueError(
                     f"--simple_column' value '{self.data_args.simple_column}' needs to be one of: {', '.join(self.column_names)}"
                 )
@@ -195,11 +196,11 @@ class DataPreprocessing():
     def run_preprocessing(self):
         train_dataset, eval_dataset, predict_dataset = None, None, None
         if self.training_args.do_train:
-            train_dataset = self.run_train.preprocessing()
+            train_dataset = self.run_train_preprocessing()
         if self.training_args.do_eval:
-            eval_dataset = self.run_eval.preprocessing()
+            eval_dataset = self.run_eval_preprocessing()
         if self.training_args.do_predict:
-            predict_dataset = self.run_predict.preprocessing()
+            predict_dataset = self.run_predict_preprocessing()
         return train_dataset, eval_dataset, predict_dataset
     
     def run_train_preprocessing(self):
@@ -214,8 +215,8 @@ class DataPreprocessing():
                 self.preprocess_function_train,
                 batched=True,
                 num_proc=self.data_args.preprocessing_num_workers,
-                remove_columns=self.get_column_names,
-                load_from_cache_file=not self.overwrite_cache,
+                remove_columns=self.get_column_names(),
+                load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Running tokenizer on train dataset",
             )
         return train_dataset
@@ -233,7 +234,7 @@ class DataPreprocessing():
                 self.preprocess_function_train,
                 batched=True,
                 num_proc=self.data_args.preprocessing_num_workers,
-                remove_columns=self.get_column_names,
+                remove_columns=self.get_column_names(),
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Running tokenizer on validation dataset",
             )
@@ -252,7 +253,7 @@ class DataPreprocessing():
                 self.preprocess_function_eval,
                 batched=True,
                 num_proc=self.data_args.preprocessing_num_workers,
-                remove_columns=self.get_column_names,
+                remove_columns=self.get_column_names(),
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Running tokenizer on prediction dataset",
             )    

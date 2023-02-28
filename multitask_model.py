@@ -30,7 +30,7 @@ class MultitaskModel(transformers.PreTrainedModel):
         self.model_list = [self.sum_model, self.sim_model]
         self.lambda_ = lambda_
         self.config = self.sum_model.config
-        self.init_shared_cross_attention()
+        self.init_shared_crossattention()
 
     @classmethod
     def create(cls, model_name, main_target_lang_id, aux_target_lang_id, max_length, lambda_):

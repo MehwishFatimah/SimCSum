@@ -177,7 +177,7 @@ class DataTrainingArguments:
             )
         },
     )
-    lambda_: Optional[int] = field(
+    lambda_: Optional[float] = field(
         default=0.7,
         metadata={
             "help": (
