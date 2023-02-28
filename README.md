@@ -13,10 +13,12 @@ Tested with Python 3.10.4.
 
 First install anaconda and setup a new conda virtual environment.
 
+```
 git checkout https://github.com/timkolber/mtl_sum.git \
 cd mtl_sum \
 pip install -r requirements.txt \
 python run_summarization.py [--[ModelArguments](#ModelArguments)] [--[DataTrainingArguments](#DataTrainingArguments)]
+```
 
 ## Arguments
 
